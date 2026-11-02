@@ -1,0 +1,428 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>American Jump</title>
+<style>
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: #18243b;
+  color: white;
+  font-family: Arial, sans-serif;
+  text-align: center;
+  overflow: hidden;
+}
+h1 {
+  color: #ffdc36;
+  text-shadow: 3px 3px #b22222;
+  margin: 8px;
+  font-size: 38px;
+}
+#game {
+  display: block;
+  margin: auto;
+  background: linear-gradient(#75c9f5, #d9f5ff);
+  border: 5px solid white;
+  border-radius: 12px;
+  max-width: 100%;
+  touch-action: none;
+}
+#info {
+  display: flex;
+  justify-content: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  font-weight: bold;
+  margin: 8px;
+}
+#menu {
+  position: fixed;
+  inset: 0;
+  background: rgba(10,20,40,.94);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+}
+.panel {
+  background: #263c60;
+  border: 4px solid #ffdc36;
+  border-radius: 18px;
+  padding: 22px;
+  width: min(420px, 94vw);
+}
+.character {
+  display: inline-block;
+  background: #405d85;
+  border: 3px solid transparent;
+  border-radius: 12px;
+  padding: 10px;
+  margin: 5px;
+  cursor: pointer;
+  font-size: 35px;
+}
+.character.selected { border-color: #ffdc36; }
+button {
+  background: #d92d32;
+  color: white;
+  border: none;
+  border-radius: 10px;
+  padding: 12px 22px;
+  font-size: 18px;
+  font-weight: bold;
+  cursor: pointer;
+  margin: 8px;
+}
+button:hover { background: #ff4646; }
+.small { font-size: 13px; color: #cbd8ef; }
+</style>
+</head>
+<body>
+
+<h1>🇺🇸 AMERICAN JUMP 🇺🇸</h1>
+
+<div id="info">
+  <span>Score: <span id="score">0</span></span>
+  <span>🍔 Burgers: <span id="burgers">0</span></span>
+  <span>🌎 Magnitude: <span id="magnitude">1.0</span></span>
+</div>
+
+<canvas id="game" width="420" height="620"></canvas>
+
+<div style="margin:8px">
+  <span>← → or A/D to move | Space to start</span>
+</div>
+
+<div id="menu">
+  <div class="panel">
+    <h1>AMERICAN JUMP</h1>
+    <p>CHOOSE YOUR AMERICAN LEGEND</p>
+
+    <div>
+      <div class="character selected" onclick="choose(0)" id="c0">
+        🇺🇸<br><small>Trump</small>
+      </div>
+      <div class="character" onclick="choose(1)" id="c1">
+        🥑<br><small>Nikocado</small>
+      </div>
+      <div class="character" onclick="choose(2)" id="c2">
+        🍔<br><small>CaseOh</small>
+      </div>
+    </div>
+
+    <p>Jump forever. Collect cheeseburgers.</p>
+    <p>Every landing causes an EARTHQUAKE!</p>
+    <p>The more burgers you eat, the stronger the earthquakes!</p>
+
+    <button onclick="startGame()">START JUMPING</button>
+    <p class="small">Warning: Excessive amounts of freedom may cause earthquakes.</p>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+const W = canvas.width;
+const H = canvas.height;
+
+let selected = 0;
+let running = false;
+let gameOver = false;
+
+const characters = [
+  { emoji:"🇺🇸", name:"Trump" },
+  { emoji:"🥑", name:"Nikocado Avocado" },
+  { emoji:"🍔", name:"CaseOh" }
+];
+
+let player, platforms, burgers;
+let score, burgerCount, magnitude;
+let camera = 0;
+let shake = 0;
+let shakeX = 0;
+let shakeY = 0;
+let keys = {};
+let lastTime = 0;
+
+function choose(n) {
+  selected = n;
+  for(let i=0;i<3;i++) {
+    document.getElementById("c"+i).classList.toggle("selected",i===n);
+  }
+}
+
+function startGame() {
+  document.getElementById("menu").style.display = "none";
+
+  score = 0;
+  burgerCount = 0;
+  magnitude = 1;
+  camera = 0;
+  shake = 0;
+  gameOver = false;
+  running = true;
+
+  player = {
+    x: W/2-18,
+    y: H-110,
+    w: 36,
+    h: 42,
+    vx: 0,
+    vy: -11,
+    emoji: characters[selected].emoji
+  };
+
+  platforms = [];
+  burgers = [];
+
+  platforms.push({x:W/2-45,y:H-45,w:90,h:13});
+
+  let y = H-130;
+  for(let i=0;i<12;i++) {
+    platforms.push({
+      x:Math.random()*(W-85),
+      y:y,
+      w:65+Math.random()*20,
+      h:12
+    });
+    y-=65+Math.random()*15;
+  }
+
+  lastTime = performance.now();
+  requestAnimationFrame(loop);
+}
+
+function makePlatform(y) {
+  const p = {
+    x:Math.random()*(W-80),
+    y:y,
+    w:65+Math.random()*20,
+    h:12
+  };
+
+  platforms.push(p);
+
+  if(Math.random()<0.22) {
+    burgers.push({
+      x:p.x+p.w/2-12,
+      y:p.y-35,
+      collected:false
+    });
+  }
+}
+
+function land() {
+  // Earthquake happens every time the player lands.
+  shake = Math.min(30, 3 + magnitude*1.6);
+  player.vy = -11.5 - Math.min(score/300,4);
+}
+
+function update(dt) {
+  if(!running) return;
+
+  const step = Math.min(dt/16.67,2);
+
+  // Movement
+  if(keys["ArrowLeft"] || keys["a"] || keys["A"]) {
+    player.vx -= 0.55*step;
+  }
+  if(keys["ArrowRight"] || keys["d"] || keys["D"]) {
+    player.vx += 0.55*step;
+  }
+
+  player.vx *= Math.pow(0.91,step);
+  player.vx = Math.max(-6,Math.min(6,player.vx));
+
+  let oldY = player.y;
+
+  player.x += player.vx*step;
+  player.y += player.vy*step;
+  player.vy += 0.42*step;
+
+  // Wrap around screen
+  if(player.x > W) player.x = -player.w;
+  if(player.x+player.w < 0) player.x = W;
+
+  // Platform collision
+  if(player.vy > 0) {
+    for(const p of platforms) {
+      if(
+        oldY+player.h <= p.y+4 &&
+        player.y+player.h >= p.y &&
+        player.x+player.w > p.x &&
+        player.x < p.x+p.w
+      ) {
+        player.y = p.y-player.h;
+        land();
+        break;
+      }
+    }
+  }
+
+  // Burger collection
+  for(const b of burgers) {
+    if(!b.collected &&
+      player.x+player.w > b.x &&
+      player.x < b.x+24 &&
+      player.y+player.h > b.y &&
+      player.y < b.y+25) {
+
+      b.collected = true;
+      burgerCount++;
+
+      // Every burger makes future earthquakes stronger.
+      magnitude = 1 + burgerCount*0.5;
+
+      score += 100;
+      shake = Math.max(shake, 5+burgerCount*1.5);
+    }
+  }
+
+  // Camera follows player upward
+  if(player.y-camera < H*0.38) {
+    camera = player.y-H*0.38;
+  }
+
+  // Score from height
+  score = Math.max(score,Math.floor(-camera));
+
+  // Generate new platforms above screen
+  let highest = Math.min(...platforms.map(p=>p.y));
+
+  while(highest > camera-100) {
+    highest -= 65+Math.random()*35;
+    makePlatform(highest);
+  }
+
+  platforms = platforms.filter(p=>p.y-camera < H+100);
+  burgers = burgers.filter(b=>!b.collected && b.y-camera < H+100);
+
+  // Falling means game over
+  if(player.y-camera > H+60) {
+    endGame();
+  }
+
+  shake *= Math.pow(0.88,step);
+
+  document.getElementById("score").textContent = score;
+  document.getElementById("burgers").textContent = burgerCount;
+  document.getElementById("magnitude").textContent = magnitude.toFixed(1);
+}
+
+function draw() {
+  ctx.save();
+
+  shakeX = shake ? (Math.random()-.5)*shake*2 : 0;
+  shakeY = shake ? (Math.random()-.5)*shake*2 : 0;
+
+  ctx.translate(shakeX,shakeY);
+
+  // Sky
+  ctx.clearRect(-50,-50,W+100,H+100);
+
+  // Clouds
+  ctx.fillStyle = "rgba(255,255,255,.75)";
+  for(let i=0;i<7;i++) {
+    let x=(i*91+40)%W;
+    let y=(i*139+80-camera*.15)%(H+80);
+    ctx.beginPath();
+    ctx.arc(x,y,19,0,Math.PI*2);
+    ctx.arc(x+22,y-8,24,0,Math.PI*2);
+    ctx.arc(x+45,y,18,0,Math.PI*2);
+    ctx.fill();
+  }
+
+  // Platforms
+  for(const p of platforms) {
+    let y=p.y-camera;
+
+    ctx.fillStyle="#269b46";
+    ctx.fillRect(p.x,y,p.w,p.h);
+
+    ctx.fillStyle="#a9e66d";
+    ctx.fillRect(p.x,y,p.w,4);
+
+    ctx.strokeStyle="#176b32";
+    ctx.strokeRect(p.x,y,p.w,p.h);
+  }
+
+  // Cheeseburgers
+  for(const b of burgers) {
+    if(!b.collected) {
+      ctx.font="26px Arial";
+      ctx.fillText("🍔",b.x,b.y-camera+23);
+    }
+  }
+
+  // Player
+  ctx.font="39px Arial";
+  ctx.fillText(player.emoji,player.x,player.y-camera+34);
+
+  // Earthquake indicator
+  if(shake>2) {
+    ctx.fillStyle="rgba(180,0,0,.18)";
+    ctx.fillRect(0,0,W,H);
+    ctx.fillStyle="#b22222";
+    ctx.font="bold 18px Arial";
+    ctx.fillText("EARTHQUAKE!!!",W/2-75,35);
+  }
+
+  ctx.restore();
+}
+
+function loop(time) {
+  if(!running) return;
+
+  let dt=time-lastTime;
+  lastTime=time;
+
+  update(dt);
+  draw();
+
+  if(running) requestAnimationFrame(loop);
+}
+
+function endGame() {
+  running = false;
+  gameOver = true;
+
+  document.getElementById("menu").style.display="flex";
+
+  document.querySelector(".panel").innerHTML = `
+    <h1>GAME OVER!</h1>
+    <h2>🇺🇸 AMERICAN JUMP 🇺🇸</h2>
+    <p>Final Score: ${score}</p>
+    <p>🍔 Burgers Eaten: ${burgerCount}</p>
+    <p>🌎 Final Magnitude: ${magnitude.toFixed(1)}</p>
+    <p>${characters[selected].name} has left the building.</p>
+    <button onclick="startGame()">PLAY AGAIN</button>
+  `;
+}
+
+document.addEventListener("keydown",e=>{
+  keys[e.key]=true;
+  if(["ArrowLeft","ArrowRight"," "].includes(e.key)) e.preventDefault();
+});
+
+document.addEventListener("keyup",e=>{
+  keys[e.key]=false;
+});
+
+// Mobile controls
+canvas.addEventListener("touchstart",e=>{
+  const x=e.touches[0].clientX;
+  keys["ArrowLeft"]=x<window.innerWidth/2;
+  keys["ArrowRight"]=x>=window.innerWidth/2;
+});
+
+canvas.addEventListener("touchend",()=>{
+  keys["ArrowLeft"]=false;
+  keys["ArrowRight"]=false;
+});
+</script>
+</body>
+</html>
